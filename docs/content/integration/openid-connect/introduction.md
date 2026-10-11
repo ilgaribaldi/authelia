@@ -111,19 +111,25 @@ Authelia supports three key audience issuance modes.
    (at the token endpoint). This allows for opaque and arbitrary audiences.
 2. Using the `resource` parameter in the authorization request (at the authorization endpoint) or in the access request
    (at the token endpoint). This allows for audiences that are absolute URIs, which allows for special matching
-   behaviors.
-3. Implicitly granting all audiences when neither the `audience` or `resource` parameters are used (by policy only).
+   behaviors. These are compared with the
+   [resource](../../configuration/identity-providers/openid-connect/clients.md#resource) values of the client and not
+   the [audience](../../configuration/identity-providers/openid-connect/clients.md#audience) values.
+3. Implicitly granting all audiences or all resources when neither the `audience` or `resource` parameters are used (by
+   policy only). See the
+   [requested_audience_mode](../../configuration/identity-providers/openid-connect/clients.md#requested_audience_mode)
+   and [requested_resource_mode](../../configuration/identity-providers/openid-connect/clients.md#requested_resource_mode)
+   client options.
 
 Both the `audience` and `resource` parameters can be used together. The matching strategy for the `audience` parameter
 only allows for exact matches.
 
 The matching strategy for the `resource` parameter however allows for exact matches and also
-allows for special matching behaviors, specifically they can request a suffix of an allowed audience if the client is
-allowed to request the `https://example.com/example` they can request the `https://example.com/example` or
-`https://example.com/example/admin` audience using the resource parameter, but cannot request the
-`https://example.com/notexample/admin/users` audience.
+allows for special matching behaviors, specifically they can request a path beneath an allowed resource if the client
+is allowed to request the `https://example.com/example` they can request the `https://example.com/example` or
+`https://example.com/example/admin` resource using the resource parameter, but cannot request the
+`https://example.com/notexample/admin/users` resource.
 
-Please note that this only applies to absolute URLs and both the `audience` allowed to the client and the `resource`
+Please note that this only applies to absolute URLs and both the `resource` allowed to the client and the `resource`
 requested by the client must be absolute URLs, otherwise they are skipped and will eventually result in an error.
 
 ### Access Token Audience vs ID Token Audience

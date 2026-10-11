@@ -262,6 +262,14 @@ const (
 	errFmtOIDCClientRequestURIInvalidScheme = errFmtOIDCClientRequestURIHas +
 		"an invalid scheme: scheme must be 'https' but request uri '%s' has a '%s' scheme"
 
+	errFmtOIDCClientResourceHas          = errFmtOIDCClientOption + "'resource' has "
+	errFmtOIDCClientResourceCantBeParsed = errFmtOIDCClientResourceHas +
+		"an invalid value: resource '%s' could not be parsed: %v"
+	errFmtOIDCClientResourceNotAbsolute = errFmtOIDCClientResourceHas +
+		"an invalid value: resource '%s' must be an absolute uri with a scheme but it's absent"
+	errFmtOIDCClientResourceFragment = errFmtOIDCClientResourceHas +
+		"an invalid value: resource '%s' must not include a fragment"
+
 	errFmtOIDCClientInvalidConsentMode = "identity_providers: oidc: clients: client '%s': consent: option 'mode' must be one of " +
 		"%s but it's configured as '%s'"
 	errFmtOIDCClientInvalidEntries = errFmtOIDCClientOption + errFmtMustOnlyHaveValues +
@@ -590,6 +598,7 @@ const (
 	attrOIDCGrantTypes                  = "grant_types"
 	attrOIDCRedirectURIs                = "redirect_uris"
 	attrOIDCRequestURIs                 = "request_uris"
+	attrOIDCResource                    = "resource"
 	attrOIDCRequestObjectSigningAlg     = "request_object_signing_alg"
 	attrOIDCTokenAuthMethod             = "token_endpoint_auth_method"
 	attrOIDCTokenAuthSigningAlg         = "token_endpoint_auth_signing_alg"
@@ -608,6 +617,7 @@ const (
 	attrOIDCIntrospectionPrefix         = "introspection"
 	attrOIDCPKCEChallengeMethod         = "pkce_challenge_method"
 	attrOIDCRequestedAudienceMode       = "requested_audience_mode"
+	attrOIDCRequestedResourceMode       = "requested_resource_mode"
 	attrSessionAutheliaURL              = "authelia_url"
 	attrSessionDomain                   = "domain"
 	attrDefaultRedirectionURL           = "default_redirection_url"

@@ -923,6 +923,62 @@ func TestSQLProviderOAuth2Session(t *testing.T) {
 
 		assert.ErrorIs(t, provider.DeactivateOAuth2Session(ctx, OAuth2SessionTypeRefreshToken, "sig-deact-twice"), ErrNoRowsAffected)
 	})
+
+	t.Run("ShouldUpdateActiveRefreshTokenSession", func(t *testing.T) {
+		s := session
+		s.Signature = "sig-update"
+		s.RequestID = "req-update"
+		s.ChallengeID = model.MustNullUUID(model.NewRandomNullUUID())
+		s.Active = true
+		s.AccessSignature = "sig-update-access"
+
+		require.NoError(t, provider.SaveOAuth2Session(ctx, OAuth2SessionTypeRefreshToken, s))
+
+		update := s
+		update.Session = []byte(`{"updated":true}`)
+		update.Form = "example=updated"
+		update.GrantedScopes = model.StringSlicePipeDelimited{"openid", "offline_access"}
+		update.AccessSignature = "sig-update-other"
+
+		require.NoError(t, provider.UpdateOAuth2RefreshTokenSession(ctx, update))
+
+		loaded, err := provider.LoadOAuth2Session(ctx, OAuth2SessionTypeRefreshToken, "sig-update")
+		require.NoError(t, err)
+
+		assert.Equal(t, []byte(`{"updated":true}`), loaded.Session)
+		assert.Equal(t, "example=updated", loaded.Form)
+		assert.Equal(t, model.StringSlicePipeDelimited{"openid", "offline_access"}, loaded.GrantedScopes)
+		assert.True(t, loaded.Active)
+		assert.False(t, loaded.Revoked)
+
+		accessSignature, err := provider.LoadOAuth2RefreshTokenSessionAccessSignature(ctx, "sig-update")
+		require.NoError(t, err)
+
+		assert.Equal(t, "sig-update-access", accessSignature)
+	})
+
+	t.Run("ShouldErrUpdateRefreshTokenSessionNotActive", func(t *testing.T) {
+		s := session
+		s.Signature = "sig-update-inactive"
+		s.RequestID = "req-update-inactive"
+		s.ChallengeID = model.MustNullUUID(model.NewRandomNullUUID())
+		s.Active = true
+
+		assert.ErrorIs(t, provider.UpdateOAuth2RefreshTokenSession(ctx, s), ErrNoRowsAffected)
+
+		require.NoError(t, provider.SaveOAuth2Session(ctx, OAuth2SessionTypeRefreshToken, s))
+		require.NoError(t, provider.DeactivateOAuth2Session(ctx, OAuth2SessionTypeRefreshToken, "sig-update-inactive"))
+
+		assert.ErrorIs(t, provider.UpdateOAuth2RefreshTokenSession(ctx, s), ErrNoRowsAffected)
+
+		s.Signature = "sig-update-revoked"
+		s.RequestID = "req-update-revoked"
+
+		require.NoError(t, provider.SaveOAuth2Session(ctx, OAuth2SessionTypeRefreshToken, s))
+		require.NoError(t, provider.RevokeOAuth2Session(ctx, OAuth2SessionTypeRefreshToken, "sig-update-revoked"))
+
+		assert.ErrorIs(t, provider.UpdateOAuth2RefreshTokenSession(ctx, s), ErrNoRowsAffected)
+	})
 }
 
 func TestSQLProviderOAuth2DeviceCodeSession(t *testing.T) {
@@ -1032,6 +1088,34 @@ func TestSQLProviderOAuth2BlacklistedJTI(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, loaded)
 		assert.Equal(t, "jti-sig-123", loaded.Signature)
+	})
+
+	t.Run("ShouldErrSaveKnownAndKeepExpiration", func(t *testing.T) {
+		exp := time.Now().Add(time.Hour).Truncate(time.Second)
+
+		require.NoError(t, provider.SaveOAuth2BlacklistedJTI(ctx, model.OAuth2BlacklistedJTI{Signature: "jti-sig-known", ExpiresAt: exp}))
+
+		err := provider.SaveOAuth2BlacklistedJTI(ctx, model.OAuth2BlacklistedJTI{Signature: "jti-sig-known", ExpiresAt: exp.Add(time.Hour)})
+
+		require.Error(t, err)
+		assert.True(t, IsUniqueConstraintViolation(err))
+
+		loaded, err := provider.LoadOAuth2BlacklistedJTI(ctx, "jti-sig-known")
+
+		require.NoError(t, err)
+		assert.True(t, exp.Equal(loaded.ExpiresAt))
+	})
+
+	t.Run("ShouldReplaceExpired", func(t *testing.T) {
+		exp := time.Now().Add(time.Hour).Truncate(time.Second)
+
+		require.NoError(t, provider.SaveOAuth2BlacklistedJTI(ctx, model.OAuth2BlacklistedJTI{Signature: "jti-sig-expired", ExpiresAt: time.Now().Add(-time.Hour)}))
+		require.NoError(t, provider.SaveOAuth2BlacklistedJTI(ctx, model.OAuth2BlacklistedJTI{Signature: "jti-sig-expired", ExpiresAt: exp}))
+
+		loaded, err := provider.LoadOAuth2BlacklistedJTI(ctx, "jti-sig-expired")
+
+		require.NoError(t, err)
+		assert.True(t, exp.Equal(loaded.ExpiresAt))
 	})
 
 	t.Run("ShouldReturnErrForUnknown", func(t *testing.T) {

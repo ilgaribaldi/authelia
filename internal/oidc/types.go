@@ -74,6 +74,7 @@ type RegisteredClient struct {
 	PKCEChallengeMethod        string
 
 	Audience      []string
+	Resource      []string
 	Scopes        []string
 	RedirectURIs  []string
 	GrantTypes    []string
@@ -138,6 +139,7 @@ type RegisteredClient struct {
 
 	ConsentPolicy         ClientConsentPolicy
 	RequestedAudienceMode ClientRequestedAudienceMode
+	RequestedResourceMode ClientRequestedResourceMode
 
 	RequestURIs    []string
 	JSONWebKeys    *jose.JSONWebKeySet

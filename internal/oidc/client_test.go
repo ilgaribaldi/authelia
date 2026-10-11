@@ -839,6 +839,29 @@ func TestClient_GetAudience(t *testing.T) {
 	assert.Equal(t, examplecom, audience[0])
 }
 
+func TestClient_GetResource(t *testing.T) {
+	c := &oidc.RegisteredClient{}
+
+	resource := c.GetResource()
+	assert.Len(t, resource, 0)
+
+	c.Audience = []string{examplecom}
+
+	resource = c.GetResource()
+	assert.Len(t, resource, 0)
+
+	c.Resource = []string{"https://api.example.com"}
+
+	resource = c.GetResource()
+	require.Len(t, resource, 1)
+	assert.Equal(t, "https://api.example.com", resource[0])
+
+	c = oidc.NewClient(schema.IdentityProvidersOpenIDConnectClient{Audience: []string{examplecom}, Resource: []string{"https://api.example.com"}}, &schema.IdentityProvidersOpenIDConnect{}, nil).(*oidc.RegisteredClient)
+
+	assert.Equal(t, oauthelia2.Arguments{examplecom}, c.GetAudience())
+	assert.Equal(t, oauthelia2.Arguments{"https://api.example.com"}, c.GetResource())
+}
+
 func TestClient_GetScopes(t *testing.T) {
 	c := &oidc.RegisteredClient{}
 

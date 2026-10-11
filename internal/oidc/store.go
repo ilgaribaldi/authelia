@@ -6,7 +6,6 @@ package oidc
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -144,12 +143,11 @@ func (s *Store) GetClient(ctx context.Context, id string) (client oauthelia2.Cli
 	return s.GetRegisteredClient(ctx, id)
 }
 
-// ClientAssertionJWTValid returns an error if the JTI is known or the DB check failed and nil if the JTI is not known.
+// ClientAssertionJWTValid returns an error if the JTI is known for the client or the DB check failed and nil if the
+// JTI is not known.
 // This implements a portion of oauthelia2.ClientManager.
-func (s *Store) ClientAssertionJWTValid(ctx context.Context, jti string) (err error) {
-	signature := fmt.Sprintf("%x", sha256.Sum256([]byte(jti)))
-
-	blacklistedJTI, err := s.provider.LoadOAuth2BlacklistedJTI(ctx, signature)
+func (s *Store) ClientAssertionJWTValid(ctx context.Context, clientID, jti string) (err error) {
+	blacklistedJTI, err := s.provider.LoadOAuth2BlacklistedJTI(ctx, model.NewOAuth2BlacklistedJTISignature(clientID, jti))
 
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -163,13 +161,22 @@ func (s *Store) ClientAssertionJWTValid(ctx context.Context, jti string) (err er
 	}
 }
 
-// SetClientAssertionJWT marks a JTI as known for the given expiry time. Before inserting the new JTI, it will clean
-// up any existing JTIs that have expired as those tokens can not be replayed due to the expiry.
+// SetClientAssertionJWT marks a JTI as known for the client until the given expiry time. It returns the
+// oauthelia2.ErrJTIKnown error when the JTI is already known for the client and has not expired, which the unique
+// index on the signature enforces atomically.
 // This implements a portion of oauthelia2.ClientManager.
-func (s *Store) SetClientAssertionJWT(ctx context.Context, jti string, exp time.Time) (err error) {
-	blacklistedJTI := model.NewOAuth2BlacklistedJTI(jti, exp)
+func (s *Store) SetClientAssertionJWT(ctx context.Context, clientID, jti string, exp time.Time) (err error) {
+	blacklistedJTI := model.NewOAuth2BlacklistedJTI(clientID, jti, exp)
 
-	return errStorage(s.provider.SaveOAuth2BlacklistedJTI(ctx, blacklistedJTI))
+	if err = s.provider.SaveOAuth2BlacklistedJTI(ctx, blacklistedJTI); err != nil {
+		if storage.IsUniqueConstraintViolation(err) {
+			return oauthelia2.ErrJTIKnown.WithWrap(err)
+		}
+
+		return errStorage(err)
+	}
+
+	return nil
 }
 
 // CreateAuthorizeCodeSession stores the authorization request for a given authorization code.
@@ -249,6 +256,28 @@ func (s *Store) CreateRefreshTokenSession(ctx context.Context, signature string,
 // This implements a portion of oauth2.RefreshTokenStorage.
 func (s *Store) DeleteRefreshTokenSession(ctx context.Context, signature string) (err error) {
 	return s.revokeSessionBySignature(ctx, storage.OAuth2SessionTypeRefreshToken, signature)
+}
+
+// UpdateRefreshTokenSession replaces the authorization request stored for a given refresh token which remains valid,
+// leaving its state and the access token it was issued alongside as they are. It returns oauthelia2.ErrNotFound when
+// no active session exists for the refresh token.
+// This implements a portion of oauth2.RefreshTokenStorage.
+func (s *Store) UpdateRefreshTokenSession(ctx context.Context, signature string, request oauthelia2.Requester) (err error) {
+	var session *model.OAuth2Session
+
+	if session, err = model.NewOAuth2SessionFromRequest(signature, request); err != nil {
+		return err
+	}
+
+	if err = s.provider.UpdateOAuth2RefreshTokenSession(ctx, *session); err != nil {
+		if errors.Is(err, storage.ErrNoRowsAffected) {
+			return oauthelia2.ErrNotFound
+		}
+
+		return errStorage(err)
+	}
+
+	return nil
 }
 
 // RevokeRefreshToken revokes a refresh token as specified in: https://datatracker.ietf.org/doc/html/rfc7009#section-2.1
@@ -481,24 +510,36 @@ func (s *Store) GetPARSession(ctx context.Context, requestURI string) (request o
 	return par.ToAuthorizeRequest(ctx, NewSession(), s)
 }
 
-// DeletePARSession deletes the context.
+// DeletePARSession deletes the context. It returns oauthelia2.ErrNotFound when the context does not exist or was
+// already deleted, such as by a concurrent request which redeemed the request URI first.
 // This implements a portion of oauthelia2.PARStorage.
 func (s *Store) DeletePARSession(ctx context.Context, requestURI string) (err error) {
-	return errStorage(s.provider.RevokeOAuth2PushedAuthorizationSession(ctx, requestURI))
+	if err = s.provider.RevokeOAuth2PushedAuthorizationSession(ctx, requestURI); err != nil {
+		if errors.Is(err, storage.ErrNoRowsAffected) {
+			return oauthelia2.ErrNotFound
+		}
+
+		return errStorage(err)
+	}
+
+	return nil
 }
 
-// IsJWTUsed implements an interface required for RFC7523.
-func (s *Store) IsJWTUsed(ctx context.Context, jti string) (used bool, err error) {
-	if err = s.ClientAssertionJWTValid(ctx, jti); err != nil {
+// IsRFC7523JWTUsed returns true and an error if the JTI is known for the issuer or the DB check failed.
+// This implements a portion of rfc7523.Storage.
+func (s *Store) IsRFC7523JWTUsed(ctx context.Context, issuer, jti string) (used bool, err error) {
+	if err = s.ClientAssertionJWTValid(ctx, issuer, jti); err != nil {
 		return true, err
 	}
 
 	return false, nil
 }
 
-// MarkJWTUsedForTime implements an interface required for rfc7523.RFC7523KeyStorage.
-func (s *Store) MarkJWTUsedForTime(ctx context.Context, jti string, exp time.Time) (err error) {
-	return s.SetClientAssertionJWT(ctx, jti, exp)
+// MarkRFC7523JWTUsedForTime marks a JTI as known for the issuer until the given expiry time. It returns the
+// oauthelia2.ErrJTIKnown error when the JTI is already known for the issuer and has not expired.
+// This implements a portion of rfc7523.Storage.
+func (s *Store) MarkRFC7523JWTUsedForTime(ctx context.Context, issuer, jti string, exp time.Time) (err error) {
+	return s.SetClientAssertionJWT(ctx, issuer, jti, exp)
 }
 
 func (s *Store) loadRequesterBySignature(ctx context.Context, sessionType storage.OAuth2SessionType, signature string, session oauthelia2.Session) (r oauthelia2.Requester, err error) {

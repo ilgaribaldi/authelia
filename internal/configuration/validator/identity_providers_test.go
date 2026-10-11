@@ -420,6 +420,90 @@ func TestShouldRaiseErrorWhenOIDCServerClientBadValues(t *testing.T) {
 			},
 		},
 		{
+			name: "ResourceValid",
+			clients: []schema.IdentityProvidersOpenIDConnectClient{
+				{
+					ID:                  "client-check-resource",
+					Secret:              tOpenIDConnectPlainTextClientSecret,
+					AuthorizationPolicy: policyTwoFactor,
+					Resource: []string{
+						"https://" + exampleDotCom,
+						"https://" + exampleDotCom + "/api?tenant=abc",
+						"urn:example:resource",
+					},
+				},
+			},
+		},
+		{
+			name: "ResourceNotValidURI",
+			clients: []schema.IdentityProvidersOpenIDConnectClient{
+				{
+					ID:                  "client-check-resource",
+					Secret:              tOpenIDConnectPlainTextClientSecret,
+					AuthorizationPolicy: policyTwoFactor,
+					Resource: []string{
+						"http://abc@%two",
+					},
+				},
+			},
+			errors: []string{
+				"identity_providers: oidc: clients: client 'client-check-resource': option 'resource' has an invalid value: resource 'http://abc@%two' could not be parsed: parse \"http://abc@%two\": invalid URL escape \"%tw\"",
+			},
+		},
+		{
+			name: "ResourceNotAbsolute",
+			clients: []schema.IdentityProvidersOpenIDConnectClient{
+				{
+					ID:                  "client-check-resource",
+					Secret:              tOpenIDConnectPlainTextClientSecret,
+					AuthorizationPolicy: policyTwoFactor,
+					Resource: []string{
+						exampleDotCom,
+						"/api",
+					},
+				},
+			},
+			errors: []string{
+				"identity_providers: oidc: clients: client 'client-check-resource': option 'resource' has an invalid value: resource 'example.com' must be an absolute uri with a scheme but it's absent",
+				"identity_providers: oidc: clients: client 'client-check-resource': option 'resource' has an invalid value: resource '/api' must be an absolute uri with a scheme but it's absent",
+			},
+		},
+		{
+			name: "ResourceFragment",
+			clients: []schema.IdentityProvidersOpenIDConnectClient{
+				{
+					ID:                  "client-check-resource",
+					Secret:              tOpenIDConnectPlainTextClientSecret,
+					AuthorizationPolicy: policyTwoFactor,
+					Resource: []string{
+						"https://" + exampleDotCom + "/api#example",
+						"https://" + exampleDotCom + "/api#",
+					},
+				},
+			},
+			errors: []string{
+				"identity_providers: oidc: clients: client 'client-check-resource': option 'resource' has an invalid value: resource 'https://example.com/api#example' must not include a fragment",
+				"identity_providers: oidc: clients: client 'client-check-resource': option 'resource' has an invalid value: resource 'https://example.com/api#' must not include a fragment",
+			},
+		},
+		{
+			name: "ResourceDuplicates",
+			clients: []schema.IdentityProvidersOpenIDConnectClient{
+				{
+					ID:                  "client-check-resource",
+					Secret:              tOpenIDConnectPlainTextClientSecret,
+					AuthorizationPolicy: policyTwoFactor,
+					Resource: []string{
+						"https://" + exampleDotCom,
+						"https://" + exampleDotCom,
+					},
+				},
+			},
+			errors: []string{
+				"identity_providers: oidc: clients: client 'client-check-resource': option 'resource' must have unique values but the values 'https://example.com' are duplicated",
+			},
+		},
+		{
 			name: "ValidSectorIdentifier",
 			clients: []schema.IdentityProvidersOpenIDConnectClient{
 				{
@@ -605,6 +689,57 @@ func TestShouldRaiseErrorWhenOIDCServerClientBadValues(t *testing.T) {
 			},
 			errors: []string{
 				"identity_providers: oidc: clients: client 'client-bad-ram': option 'requested_audience_mode' must be one of 'explicit' or 'implicit' but it's configured as 'magic'",
+			},
+		},
+		{
+			name: "ValidRequestedResourceMode",
+			clients: []schema.IdentityProvidersOpenIDConnectClient{
+				{
+					ID:                  "client-good-rrm",
+					Secret:              tOpenIDConnectPlainTextClientSecret,
+					AuthorizationPolicy: policyTwoFactor,
+					RedirectURIs: []string{
+						"https://google.com",
+					},
+					RequestedResourceMode: "implicit",
+				},
+			},
+			test: func(t *testing.T, actual []schema.IdentityProvidersOpenIDConnectClient) {
+				assert.Equal(t, "implicit", actual[0].RequestedResourceMode)
+			},
+		},
+		{
+			name: "SetDefaultResourceMode",
+			clients: []schema.IdentityProvidersOpenIDConnectClient{
+				{
+					ID:                  "client-no-rrm",
+					Secret:              tOpenIDConnectPlainTextClientSecret,
+					AuthorizationPolicy: policyTwoFactor,
+					RedirectURIs: []string{
+						"https://google.com",
+					},
+					RequestedResourceMode: "",
+				},
+			},
+			test: func(t *testing.T, actual []schema.IdentityProvidersOpenIDConnectClient) {
+				assert.Equal(t, "explicit", actual[0].RequestedResourceMode)
+			},
+		},
+		{
+			name: "InvalidRequestedResourceMode",
+			clients: []schema.IdentityProvidersOpenIDConnectClient{
+				{
+					ID:                  "client-bad-rrm",
+					Secret:              tOpenIDConnectPlainTextClientSecret,
+					AuthorizationPolicy: policyTwoFactor,
+					RedirectURIs: []string{
+						"https://google.com",
+					},
+					RequestedResourceMode: "magic",
+				},
+			},
+			errors: []string{
+				"identity_providers: oidc: clients: client 'client-bad-rrm': option 'requested_resource_mode' must be one of 'explicit' or 'implicit' but it's configured as 'magic'",
 			},
 		},
 	}

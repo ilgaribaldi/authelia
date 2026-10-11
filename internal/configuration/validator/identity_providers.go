@@ -729,6 +729,15 @@ func validateOIDCClient(ctx *ValidateCtx, c int, config *schema.IdentityProvider
 		validator.Push(fmt.Errorf(errFmtOIDCClientInvalidValue, config.Clients[c].ID, attrOIDCRequestedAudienceMode, utils.StringJoinOr([]string{oidc.ClientRequestedAudienceModeExplicit.String(), oidc.ClientRequestedAudienceModeImplicit.String()}), config.Clients[c].RequestedAudienceMode))
 	}
 
+	switch config.Clients[c].RequestedResourceMode {
+	case "":
+		config.Clients[c].RequestedResourceMode = schema.DefaultOpenIDConnectClientConfiguration.RequestedResourceMode
+	case oidc.ClientRequestedResourceModeExplicit.String(), oidc.ClientRequestedResourceModeImplicit.String():
+		break
+	default:
+		validator.Push(fmt.Errorf(errFmtOIDCClientInvalidValue, config.Clients[c].ID, attrOIDCRequestedResourceMode, utils.StringJoinOr([]string{oidc.ClientRequestedResourceModeExplicit.String(), oidc.ClientRequestedResourceModeImplicit.String()}), config.Clients[c].RequestedResourceMode))
+	}
+
 	setDefaults := validateOIDCClientScopesSpecialBearerAuthz(c, config, ccg, validator)
 
 	validateOIDCClientConsentMode(c, config, validator, setDefaults)
@@ -739,6 +748,7 @@ func validateOIDCClient(ctx *ValidateCtx, c int, config *schema.IdentityProvider
 	validateOIDCClientGrantTypes(c, config, validator, setDefaults, errDeprecatedFunc)
 	validateOIDCClientRedirectURIs(c, config, validator, errDeprecatedFunc)
 	validateOIDCClientRequestURIs(c, config, validator)
+	validateOIDCClientResource(c, config, validator)
 
 	validateOIDDClientSigningAlgs(c, config, validator)
 	validateOIDDClientEncryptionAlgs(c, config, validator)
@@ -1331,6 +1341,34 @@ func validateOIDCClientRequestURIs(c int, config *schema.IdentityProvidersOpenID
 
 	if len(duplicates) != 0 {
 		validator.Push(fmt.Errorf(errFmtOIDCClientInvalidEntryDuplicates, config.Clients[c].ID, attrOIDCRequestURIs, utils.StringJoinAnd(duplicates)))
+	}
+}
+
+func validateOIDCClientResource(c int, config *schema.IdentityProvidersOpenIDConnect, validator *schema.StructValidator) {
+	var (
+		parsedResource *url.URL
+		err            error
+	)
+
+	for _, resource := range config.Clients[c].Resource {
+		if parsedResource, err = url.Parse(resource); err != nil {
+			validator.Push(fmt.Errorf(errFmtOIDCClientResourceCantBeParsed, config.Clients[c].ID, resource, err))
+			continue
+		}
+
+		if !parsedResource.IsAbs() {
+			validator.Push(fmt.Errorf(errFmtOIDCClientResourceNotAbsolute, config.Clients[c].ID, resource))
+		}
+
+		if strings.Contains(resource, "#") {
+			validator.Push(fmt.Errorf(errFmtOIDCClientResourceFragment, config.Clients[c].ID, resource))
+		}
+	}
+
+	_, duplicates := validateList(config.Clients[c].Resource, nil, true)
+
+	if len(duplicates) != 0 {
+		validator.Push(fmt.Errorf(errFmtOIDCClientInvalidEntryDuplicates, config.Clients[c].ID, attrOIDCResource, utils.StringJoinAnd(duplicates)))
 	}
 }
 

@@ -52,6 +52,8 @@ identity_providers:
           - 'https://oidc.{{< sitevar name="domain" nojs="example.com" >}}:8080/oidc/request-object.jwk'
         audience:
           - 'https://app.{{< sitevar name="domain" nojs="example.com" >}}'
+        resource:
+          - 'https://api.{{< sitevar name="domain" nojs="example.com" >}}'
         scopes:
           - 'openid'
           - 'groups'
@@ -70,6 +72,7 @@ identity_providers:
         lifespan: ''
         claims_policy: ''
         requested_audience_mode: 'explicit'
+        requested_resource_mode: 'explicit'
         consent_mode: 'explicit'
         pre_configured_consent_duration: '1 week'
         require_pushed_authorization_requests: false
@@ -270,11 +273,31 @@ This value should not generally affect the minted ID Tokens as the audience spec
 ID Tokens are always meant to be minted with the client identifier being the audience. You can tune this behavior using
 the [claims policy](#claims_policy).
 
-When a client requests a resource using an [RFC8707](https://datatracker.ietf.org/doc/html/rfc8707) resource
-indicator, the requested resource only matches an audience value with the same scheme, host, and query, and a path
-equal to or beneath the audience path on a segment boundary. A requested resource which includes userinfo, a fragment,
-a dot segment such as `..`, or an encoded slash in its path never matches, and an audience value which includes any of
-these can not be requested as a resource.
+The values of this option are only compared with the `audience` parameter. The values a client is allowed to request
+using the `resource` parameter are configured using the [resource](#resource) option.
+
+### resource
+
+{{< confkey type="list(string)" required="no" >}}
+
+A whitelist of [RFC8707](https://datatracker.ietf.org/doc/html/rfc8707) resource indicators this client is allowed to
+request using the `resource` parameter and be granted. Each value must be an absolute URI, i.e. it must have a scheme,
+and must not include a fragment as described in
+[RFC8707 Section 2](https://datatracker.ietf.org/doc/html/rfc8707#section-2).
+
+The requested resource only matches a value with the same scheme, host, and query, and a path equal to or beneath the
+path of the value on a segment boundary. For example the value `https://api.{{< sitevar name="domain" nojs="example.com" >}}/v1`
+allows the client to request `https://api.{{< sitevar name="domain" nojs="example.com" >}}/v1` and
+`https://api.{{< sitevar name="domain" nojs="example.com" >}}/v1/users`, but not
+`https://api.{{< sitevar name="domain" nojs="example.com" >}}/v10`. A requested resource which includes userinfo, a
+fragment, a dot segment such as `..`, or an encoded slash in its path never matches, and a value which includes any of
+these can not be requested.
+
+The values of the [audience](#audience) option are not considered when a resource is requested, a resource which is
+only configured as an audience is refused with the `invalid_target` error.
+
+The resource can be requested by the client specifically or can be implicitly requested. This behavior can be tuned
+using the [requested_resource_mode](#requested_resource_mode).
 
 ### scopes
 
@@ -409,6 +432,22 @@ the audience.
 | :------: | :-----------------------------------------------------------------------------------------------------------------------------: |
 | explicit |            Requires the client explicitly requests an audiences for an audience to be included in the issued tokens             |
 | implicit | Assumes if the client is requesting all audiences it is permitted to request if the audience and resource parameters are absent |
+
+### requested_resource_mode
+
+{{< confkey type="string" default="explicit" required="no" >}}
+
+Controls the effective [RFC8707](https://datatracker.ietf.org/doc/html/rfc8707) resources the client has requested.
+The following table describes the possible values and their behavior. The resources the client is permitted to request
+are configured using the [resource](#resource) option.
+
+|  Value   |                                                           Description                                                           |
+| :------: | :-----------------------------------------------------------------------------------------------------------------------------: |
+| explicit |              Requires the client explicitly requests a resource for a resource to be included in the issued tokens              |
+| implicit | Assumes if the client is requesting all resources it is permitted to request if the audience and resource parameters are absent |
+
+This applies to requests made to the Authorization Endpoint, the Pushed Authorization Request Endpoint, the Device
+Authorization Endpoint, and to the Token Endpoint when using the Client Credentials Flow.
 
 ### consent_mode
 
